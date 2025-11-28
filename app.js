@@ -91,82 +91,95 @@ function saveCardState() {
 // Card Generation
 // ============================================
 
-function generateCard(eventId, playerName, relatives, maxRelatives, phrasesPerRelative, gridSize) {
+function generateCard(eventId, playerName, relatives, maxRelatives, phrasesPerRelative) {
   const seed = hashString(eventId + ":" + playerName);
   const rng = mulberry32(seed);
-
-  const totalCells = gridSize * gridSize;
 
   // Filter relatives that have at least one phrase
   const validRelatives = relatives.filter((r) => r.phrases && r.phrases.length > 0);
 
   if (validRelatives.length === 0) {
-    return { cells: [], gridSize };
+    return { cells: [], rows: 0, cols: 0 };
   }
 
   // Shuffle and pick relatives
   const shuffledRelatives = seededShuffle(validRelatives, rng);
   const selectedRelatives = shuffledRelatives.slice(0, Math.min(maxRelatives, shuffledRelatives.length));
 
-  // Build pool of phrases
-  const phrasePool = [];
+  // Build cells organized by relative (each row = one relative)
+  const cells = [];
+  let actualCols = 0;
+
   for (const relative of selectedRelatives) {
     const shuffledPhrases = seededShuffle(relative.phrases, rng);
     const selectedPhrases = shuffledPhrases.slice(0, Math.min(phrasesPerRelative, shuffledPhrases.length));
+
+    // Track the maximum number of columns needed
+    actualCols = Math.max(actualCols, selectedPhrases.length);
+
     for (const phrase of selectedPhrases) {
-      phrasePool.push({
+      cells.push({
         relative: relative.name,
         phrase: phrase,
+        checked: false,
       });
     }
   }
 
-  // Shuffle the phrase pool
-  const shuffledPool = seededShuffle(phrasePool, rng);
+  const rows = selectedRelatives.length;
+  const cols = phrasesPerRelative;
 
-  // Fill cells (up to gridSize * gridSize)
-  const cells = [];
-  for (let i = 0; i < Math.min(totalCells, shuffledPool.length); i++) {
-    cells.push({
-      ...shuffledPool[i],
-      checked: false,
-    });
+  // Pad rows that have fewer phrases than phrasesPerRelative
+  const paddedCells = [];
+  let cellIndex = 0;
+  for (const relative of selectedRelatives) {
+    const phrasesForRelative = [];
+    // Collect all cells for this relative
+    while (cellIndex < cells.length && cells[cellIndex].relative === relative.name) {
+      phrasesForRelative.push(cells[cellIndex]);
+      cellIndex++;
+    }
+    // Add the phrases we have
+    for (const cell of phrasesForRelative) {
+      paddedCells.push(cell);
+    }
+    // Pad with empty cells if needed
+    for (let i = phrasesForRelative.length; i < cols; i++) {
+      paddedCells.push({
+        relative: relative.name,
+        phrase: "(empty)",
+        checked: false,
+      });
+    }
   }
 
-  // If we don't have enough phrases, pad with empty cells
-  while (cells.length < totalCells) {
-    cells.push({
-      relative: "",
-      phrase: "(empty)",
-      checked: false,
-    });
-  }
-
-  return { cells, gridSize };
+  return { cells: paddedCells, rows, cols };
 }
 
 // ============================================
 // Bingo Detection
 // ============================================
 
-function checkBingo(cells, gridSize) {
+function checkBingo(cells, rows, cols) {
+  if (rows === 0 || cols === 0) return false;
+
   // Convert flat array to 2D grid
   const grid = [];
-  for (let row = 0; row < gridSize; row++) {
-    grid.push(cells.slice(row * gridSize, (row + 1) * gridSize));
+  for (let row = 0; row < rows; row++) {
+    grid.push(cells.slice(row * cols, (row + 1) * cols));
   }
 
   // Check rows
-  for (let row = 0; row < gridSize; row++) {
+  for (let row = 0; row < rows; row++) {
     if (grid[row].every((cell) => cell.checked)) {
       return true;
     }
   }
 
   // Check columns
-  for (let col = 0; col < gridSize; col++) {
+  for (let col = 0; col < cols; col++) {
     let allChecked = true;
-    for (let row = 0; row < gridSize; row++) {
+    for (let row = 0; row < rows; row++) {
       if (!grid[row][col].checked) {
         allChecked = false;
         break;
@@ -175,25 +188,30 @@ function checkBingo(cells, gridSize) {
     if (allChecked) return true;
   }
 
-  // Check main diagonal (top-left to bottom-right)
-  let mainDiag = true;
-  for (let i = 0; i < gridSize; i++) {
-    if (!grid[i][i].checked) {
-      mainDiag = false;
-      break;
-    }
-  }
-  if (mainDiag) return true;
+  // Only check diagonals if the grid is square
+  if (rows === cols) {
+    const size = rows;
 
-  // Check anti-diagonal (top-right to bottom-left)
-  let antiDiag = true;
-  for (let i = 0; i < gridSize; i++) {
-    if (!grid[i][gridSize - 1 - i].checked) {
-      antiDiag = false;
-      break;
+    // Check main diagonal (top-left to bottom-right)
+    let mainDiag = true;
+    for (let i = 0; i < size; i++) {
+      if (!grid[i][i].checked) {
+        mainDiag = false;
+        break;
+      }
     }
+    if (mainDiag) return true;
+
+    // Check anti-diagonal (top-right to bottom-left)
+    let antiDiag = true;
+    for (let i = 0; i < size; i++) {
+      if (!grid[i][size - 1 - i].checked) {
+        antiDiag = false;
+        break;
+      }
+    }
+    if (antiDiag) return true;
   }
-  if (antiDiag) return true;
 
   return false;
 }
@@ -249,9 +267,9 @@ function renderRelativesList() {
 
 function renderBingoCard() {
   const container = document.getElementById("bingo-card");
-  const { cells, gridSize } = state.cardState;
+  const { cells, rows, cols } = state.cardState;
 
-  container.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+  container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
 
   container.innerHTML = cells
     .map(
@@ -268,7 +286,7 @@ function renderBingoCard() {
   document.getElementById("player-info").textContent = `${state.eventConfig.playerName} @ ${state.eventConfig.eventId}`;
 
   // Check for bingo
-  const hasBingo = checkBingo(cells, gridSize);
+  const hasBingo = checkBingo(cells, rows, cols);
   document.getElementById("bingo-message").classList.toggle("hidden", !hasBingo);
 }
 
@@ -356,7 +374,6 @@ function setupEventHandlers() {
       document.getElementById("player-name").value = state.eventConfig.playerName || "";
       document.getElementById("max-relatives").value = state.eventConfig.maxRelatives || 5;
       document.getElementById("phrases-per-relative").value = state.eventConfig.phrasesPerRelative || 5;
-      document.getElementById("grid-size").value = state.eventConfig.gridSize || 5;
     }
 
     showScreen("event-setup-screen");
@@ -372,7 +389,6 @@ function setupEventHandlers() {
     const playerName = document.getElementById("player-name").value.trim();
     const maxRelatives = parseInt(document.getElementById("max-relatives").value) || 5;
     const phrasesPerRelative = parseInt(document.getElementById("phrases-per-relative").value) || 5;
-    const gridSize = parseInt(document.getElementById("grid-size").value) || 5;
 
     if (!eventId) {
       alert("Please enter an Event ID!");
@@ -388,7 +404,6 @@ function setupEventHandlers() {
       playerName,
       maxRelatives,
       phrasesPerRelative,
-      gridSize,
     };
     saveEventConfig();
 
@@ -397,7 +412,8 @@ function setupEventHandlers() {
       state.cardState &&
       state.cardState.eventId === eventId &&
       state.cardState.playerName === playerName &&
-      state.cardState.gridSize === gridSize
+      state.cardState.maxRelatives === maxRelatives &&
+      state.cardState.phrasesPerRelative === phrasesPerRelative
     ) {
       // Use existing card
     } else {
@@ -407,13 +423,14 @@ function setupEventHandlers() {
         playerName,
         state.relatives,
         maxRelatives,
-        phrasesPerRelative,
-        gridSize
+        phrasesPerRelative
       );
       state.cardState = {
         ...card,
         eventId,
         playerName,
+        maxRelatives,
+        phrasesPerRelative,
       };
       saveCardState();
     }

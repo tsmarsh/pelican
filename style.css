@@ -231,16 +231,17 @@ button:active {
 }
 
 .bingo-cell {
-  aspect-ratio: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
   background: #f0f0f0;
   border-radius: 8px;
-  padding: 0.25rem;
+  padding: 0.5rem 0.25rem;
+  min-height: 60px;
   cursor: pointer;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   line-height: 1.2;
   word-break: break-word;
   transition: all 0.2s;
@@ -303,8 +304,9 @@ button:active {
   }
 
   .bingo-cell {
-    font-size: 0.6rem;
-    padding: 0.125rem;
+    font-size: 0.65rem;
+    padding: 0.25rem 0.125rem;
+    min-height: 50px;
   }
 
   .bingo-cell .relative-label {
