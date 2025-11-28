@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pelican Bingo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Screen: Config (manage relatives and catchphrases) -->
+    <div id="config-screen" class="screen">
+      <h1>Pelican Bingo</h1>
+      <h2>Configure Relatives</h2>
+
+      <div class="config-section">
+        <div class="relative-form">
+          <input type="text" id="new-relative-name" placeholder="Relative name">
+          <button id="add-relative-btn">Add Relative</button>
+        </div>
+
+        <div id="relatives-list" class="relatives-list"></div>
+      </div>
+
+      <div class="nav-buttons">
+        <button id="to-event-setup-btn" class="primary-btn">Setup Event</button>
+      </div>
+    </div>
+
+    <!-- Screen: Event Setup -->
+    <div id="event-setup-screen" class="screen hidden">
+      <h1>Event Setup</h1>
+
+      <div class="form-group">
+        <label for="event-id">Event ID</label>
+        <input type="text" id="event-id" placeholder="e.g., thanksgiving2024">
+      </div>
+
+      <div class="form-group">
+        <label for="player-name">Your Name</label>
+        <input type="text" id="player-name" placeholder="Enter your name">
+      </div>
+
+      <div class="form-group">
+        <label for="max-relatives">Max Relatives per Card</label>
+        <input type="number" id="max-relatives" value="5" min="1" max="25">
+      </div>
+
+      <div class="form-group">
+        <label for="phrases-per-relative">Phrases per Relative</label>
+        <input type="number" id="phrases-per-relative" value="5" min="1" max="5">
+      </div>
+
+      <div class="form-group">
+        <label for="grid-size">Grid Size</label>
+        <select id="grid-size">
+          <option value="3">3x3</option>
+          <option value="4">4x4</option>
+          <option value="5" selected>5x5</option>
+        </select>
+      </div>
+
+      <div class="nav-buttons">
+        <button id="back-to-config-btn">Back to Config</button>
+        <button id="start-game-btn" class="primary-btn">Start Game</button>
+      </div>
+    </div>
+
+    <!-- Screen: Game (Bingo Card) -->
+    <div id="game-screen" class="screen hidden">
+      <div class="game-header">
+        <h1>Pelican Bingo</h1>
+        <p id="player-info"></p>
+      </div>
+
+      <div id="bingo-card" class="bingo-card"></div>
+
+      <div id="bingo-message" class="bingo-message hidden">
+        BINGO!
+      </div>
+
+      <div class="nav-buttons">
+        <button id="reset-card-btn">Reset Card</button>
+        <button id="new-game-btn">New Game</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
