@@ -4,12 +4,17 @@
   "description": "A family event bingo game",
   "private": true,
   "scripts": {
-    "build:ts": "tsc",
-    "build:assets": "mkdir -p dist && cp src/index.html dist/index.html && cp src/style.css dist/style.css && cp src/lz-string.js dist/lz-string.js && cp src/qrcode.js dist/qrcode.js",
-    "build": "yarn build:ts && yarn build:assets",
+    "build:js": "esbuild src/pelican.ts --bundle --outfile=dist/pelican.js --format=iife --target=es2019",
+    "build:assets": "mkdir -p dist && cp src/index.html dist/index.html && cp src/style.css dist/style.css",
+    "build": "yarn build:js && yarn build:assets",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "lz-string": "^1.5.0",
+    "qrcode-generator": "^1.4.4"
+  },
   "devDependencies": {
+    "esbuild": "^0.24.0",
     "typescript": "^5.6.0"
   }
 }

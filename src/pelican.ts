@@ -2,23 +2,8 @@
  * Pelican Bingo - A family event bingo game
  */
 
-// ============================================
-// Type Declarations for External Libraries
-// ============================================
-
-declare const LZString: {
-  compressToEncodedURIComponent(input: string): string;
-  decompressFromEncodedURIComponent(input: string): string | null;
-};
-
-declare function qrcode(
-  typeNumber: number,
-  errorCorrectionLevel: string
-): {
-  addData(data: string): void;
-  make(): void;
-  createSvgTag(cellSize: number, margin: number): string;
-};
+import LZString from "lz-string";
+import qrcode from "qrcode-generator";
 
 // ============================================
 // Type Definitions
