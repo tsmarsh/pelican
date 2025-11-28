@@ -3,11 +3,79 @@
  */
 
 // ============================================
+// Type Declarations for External Libraries
+// ============================================
+
+declare const LZString: {
+  compressToEncodedURIComponent(input: string): string;
+  decompressFromEncodedURIComponent(input: string): string | null;
+};
+
+declare function qrcode(
+  typeNumber: number,
+  errorCorrectionLevel: string
+): {
+  addData(data: string): void;
+  make(): void;
+  createSvgTag(cellSize: number, margin: number): string;
+};
+
+// ============================================
+// Type Definitions
+// ============================================
+
+interface Relative {
+  name: string;
+  phrases: string[];
+}
+
+interface EventConfig {
+  eventId: string;
+  playerName: string;
+  maxRelatives: number;
+  phrasesPerRelative: number;
+}
+
+interface BingoCell {
+  relative: string;
+  phrase: string;
+  checked: boolean;
+}
+
+interface CardState {
+  cells: BingoCell[];
+  rows: number;
+  cols: number;
+  eventId: string;
+  playerName: string;
+  maxRelatives: number;
+  phrasesPerRelative: number;
+}
+
+interface ShareBlob {
+  schema: number;
+  gameConfig: {
+    relatives: Relative[];
+  };
+  eventConfig: {
+    eventId: string;
+    maxRelatives: number;
+    phrasesPerRelative: number;
+  };
+}
+
+interface AppState {
+  relatives: Relative[];
+  eventConfig: EventConfig | null;
+  cardState: CardState | null;
+}
+
+// ============================================
 // PRNG (Mulberry32) for deterministic randomness
 // ============================================
 
-function mulberry32(seed) {
-  return function () {
+function mulberry32(seed: number): () => number {
+  return function (): number {
     let t = (seed += 0x6d2b79f5);
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -15,7 +83,7 @@ function mulberry32(seed) {
   };
 }
 
-function hashString(str) {
+function hashString(str: string): number {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
@@ -25,7 +93,7 @@ function hashString(str) {
   return Math.abs(hash);
 }
 
-function seededShuffle(array, rng) {
+function seededShuffle<T>(array: T[], rng: () => number): T[] {
   const result = [...array];
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
@@ -42,19 +110,19 @@ const STORAGE_KEYS = {
   RELATIVES: "pelican_relatives",
   EVENT_CONFIG: "pelican_event_config",
   CARD_STATE: "pelican_card_state",
-};
+} as const;
 
 // ============================================
 // State Management
 // ============================================
 
-const state = {
+const state: AppState = {
   relatives: [],
   eventConfig: null,
   cardState: null,
 };
 
-function loadState() {
+function loadState(): void {
   try {
     const relativesData = localStorage.getItem(STORAGE_KEYS.RELATIVES);
     state.relatives = relativesData ? JSON.parse(relativesData) : [];
@@ -72,18 +140,18 @@ function loadState() {
   }
 }
 
-function saveRelatives() {
+function saveRelatives(): void {
   localStorage.setItem(STORAGE_KEYS.RELATIVES, JSON.stringify(state.relatives));
 }
 
-function saveEventConfig() {
+function saveEventConfig(): void {
   localStorage.setItem(
     STORAGE_KEYS.EVENT_CONFIG,
     JSON.stringify(state.eventConfig)
   );
 }
 
-function saveCardState() {
+function saveCardState(): void {
   localStorage.setItem(STORAGE_KEYS.CARD_STATE, JSON.stringify(state.cardState));
 }
 
@@ -91,12 +159,26 @@ function saveCardState() {
 // Card Generation
 // ============================================
 
-function generateCard(eventId, playerName, relatives, maxRelatives, phrasesPerRelative) {
+interface GeneratedCard {
+  cells: BingoCell[];
+  rows: number;
+  cols: number;
+}
+
+function generateCard(
+  eventId: string,
+  playerName: string,
+  relatives: Relative[],
+  maxRelatives: number,
+  phrasesPerRelative: number
+): GeneratedCard {
   const seed = hashString(eventId + ":" + playerName);
   const rng = mulberry32(seed);
 
   // Filter relatives that have at least one phrase
-  const validRelatives = relatives.filter((r) => r.phrases && r.phrases.length > 0);
+  const validRelatives = relatives.filter(
+    (r) => r.phrases && r.phrases.length > 0
+  );
 
   if (validRelatives.length === 0) {
     return { cells: [], rows: 0, cols: 0 };
@@ -104,18 +186,20 @@ function generateCard(eventId, playerName, relatives, maxRelatives, phrasesPerRe
 
   // Shuffle and pick relatives
   const shuffledRelatives = seededShuffle(validRelatives, rng);
-  const selectedRelatives = shuffledRelatives.slice(0, Math.min(maxRelatives, shuffledRelatives.length));
+  const selectedRelatives = shuffledRelatives.slice(
+    0,
+    Math.min(maxRelatives, shuffledRelatives.length)
+  );
 
   // Build cells organized by relative (each row = one relative)
-  const cells = [];
-  let actualCols = 0;
+  const cells: BingoCell[] = [];
 
   for (const relative of selectedRelatives) {
     const shuffledPhrases = seededShuffle(relative.phrases, rng);
-    const selectedPhrases = shuffledPhrases.slice(0, Math.min(phrasesPerRelative, shuffledPhrases.length));
-
-    // Track the maximum number of columns needed
-    actualCols = Math.max(actualCols, selectedPhrases.length);
+    const selectedPhrases = shuffledPhrases.slice(
+      0,
+      Math.min(phrasesPerRelative, shuffledPhrases.length)
+    );
 
     for (const phrase of selectedPhrases) {
       cells.push({
@@ -130,10 +214,10 @@ function generateCard(eventId, playerName, relatives, maxRelatives, phrasesPerRe
   const cols = phrasesPerRelative;
 
   // Pad rows that have fewer phrases than phrasesPerRelative
-  const paddedCells = [];
+  const paddedCells: BingoCell[] = [];
   let cellIndex = 0;
   for (const relative of selectedRelatives) {
-    const phrasesForRelative = [];
+    const phrasesForRelative: BingoCell[] = [];
     // Collect all cells for this relative
     while (cellIndex < cells.length && cells[cellIndex].relative === relative.name) {
       phrasesForRelative.push(cells[cellIndex]);
@@ -160,11 +244,11 @@ function generateCard(eventId, playerName, relatives, maxRelatives, phrasesPerRe
 // Bingo Detection
 // ============================================
 
-function checkBingo(cells, rows, cols) {
+function checkBingo(cells: BingoCell[], rows: number, cols: number): boolean {
   if (rows === 0 || cols === 0) return false;
 
   // Convert flat array to 2D grid
-  const grid = [];
+  const grid: BingoCell[][] = [];
   for (let row = 0; row < rows; row++) {
     grid.push(cells.slice(row * cols, (row + 1) * cols));
   }
@@ -220,18 +304,20 @@ function checkBingo(cells, rows, cols) {
 // UI Rendering
 // ============================================
 
-function showScreen(screenId) {
+function showScreen(screenId: string): void {
   document.querySelectorAll(".screen").forEach((screen) => {
     screen.classList.add("hidden");
   });
-  document.getElementById(screenId).classList.remove("hidden");
+  document.getElementById(screenId)?.classList.remove("hidden");
 }
 
-function renderRelativesList() {
+function renderRelativesList(): void {
   const container = document.getElementById("relatives-list");
+  if (!container) return;
 
   if (state.relatives.length === 0) {
-    container.innerHTML = '<p class="empty-message">No relatives added yet. Add some above!</p>';
+    container.innerHTML =
+      '<p class="empty-message">No relatives added yet. Add some above!</p>';
     return;
   }
 
@@ -265,8 +351,10 @@ function renderRelativesList() {
     .join("");
 }
 
-function renderBingoCard() {
-  const container = document.getElementById("bingo-card");
+function renderBingoCard(): void {
+  const container = document.getElementById("bingo-card") as HTMLElement | null;
+  if (!container || !state.cardState || !state.eventConfig) return;
+
   const { cells, rows, cols } = state.cardState;
 
   container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
@@ -283,14 +371,17 @@ function renderBingoCard() {
     .join("");
 
   // Update player info
-  document.getElementById("player-info").textContent = `${state.eventConfig.playerName} @ ${state.eventConfig.eventId}`;
+  const playerInfo = document.getElementById("player-info");
+  if (playerInfo) {
+    playerInfo.textContent = `${state.eventConfig.playerName} @ ${state.eventConfig.eventId}`;
+  }
 
   // Check for bingo
   const hasBingo = checkBingo(cells, rows, cols);
-  document.getElementById("bingo-message").classList.toggle("hidden", !hasBingo);
+  document.getElementById("bingo-message")?.classList.toggle("hidden", !hasBingo);
 }
 
-function escapeHtml(text) {
+function escapeHtml(text: string): string {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
@@ -300,12 +391,16 @@ function escapeHtml(text) {
 // QR Code Sharing
 // ============================================
 
-function generateShareURL() {
-  const eventId = document.getElementById("event-id").value.trim();
-  const maxRelatives = parseInt(document.getElementById("max-relatives").value) || 5;
-  const phrasesPerRelative = parseInt(document.getElementById("phrases-per-relative").value) || 5;
+function generateShareURL(): string {
+  const eventIdInput = document.getElementById("event-id") as HTMLInputElement | null;
+  const maxRelativesInput = document.getElementById("max-relatives") as HTMLInputElement | null;
+  const phrasesInput = document.getElementById("phrases-per-relative") as HTMLInputElement | null;
 
-  const shareBlob = {
+  const eventId = eventIdInput?.value.trim() ?? "";
+  const maxRelatives = parseInt(maxRelativesInput?.value ?? "5") || 5;
+  const phrasesPerRelative = parseInt(phrasesInput?.value ?? "5") || 5;
+
+  const shareBlob: ShareBlob = {
     schema: 1,
     gameConfig: {
       relatives: state.relatives,
@@ -323,8 +418,10 @@ function generateShareURL() {
   return baseURL + "#pelican=" + compressed;
 }
 
-function showQRCode(url) {
+function showQRCode(url: string): void {
   const container = document.getElementById("qr-code-container");
+  if (!container) return;
+
   container.innerHTML = "";
 
   // Use type 0 for auto-detect size
@@ -335,10 +432,10 @@ function showQRCode(url) {
   // Create SVG for better quality
   container.innerHTML = qr.createSvgTag(4, 0);
 
-  document.getElementById("qr-modal").classList.remove("hidden");
+  document.getElementById("qr-modal")?.classList.remove("hidden");
 }
 
-function parseSharedLink() {
+function parseSharedLink(): ShareBlob | null {
   const hash = window.location.hash;
   if (!hash || !hash.includes("pelican=")) {
     return null;
@@ -349,7 +446,7 @@ function parseSharedLink() {
     const json = LZString.decompressFromEncodedURIComponent(encoded);
     if (!json) return null;
 
-    const data = JSON.parse(json);
+    const data = JSON.parse(json) as ShareBlob;
     if (data.schema !== 1) {
       console.warn("Unknown schema version:", data.schema);
       return null;
@@ -362,7 +459,7 @@ function parseSharedLink() {
   }
 }
 
-function loadSharedConfig(data) {
+function loadSharedConfig(data: ShareBlob): string {
   // Overwrite relatives config
   if (data.gameConfig && data.gameConfig.relatives) {
     state.relatives = data.gameConfig.relatives;
@@ -390,57 +487,63 @@ function loadSharedConfig(data) {
   return data.eventConfig?.eventId || "shared event";
 }
 
-function showBanner(message) {
+function showBanner(message: string): void {
   const banner = document.getElementById("shared-link-banner");
-  document.getElementById("banner-message").textContent = message;
-  banner.classList.remove("hidden");
+  const bannerMessage = document.getElementById("banner-message");
+  if (bannerMessage) {
+    bannerMessage.textContent = message;
+  }
+  banner?.classList.remove("hidden");
 }
 
 // ============================================
 // Event Handlers
 // ============================================
 
-function setupEventHandlers() {
+function setupEventHandlers(): void {
   // Config screen
-  document.getElementById("add-relative-btn").addEventListener("click", () => {
-    const input = document.getElementById("new-relative-name");
-    const name = input.value.trim();
+  document.getElementById("add-relative-btn")?.addEventListener("click", () => {
+    const input = document.getElementById("new-relative-name") as HTMLInputElement | null;
+    const name = input?.value.trim() ?? "";
     if (name) {
       state.relatives.push({ name, phrases: [] });
       saveRelatives();
       renderRelativesList();
-      input.value = "";
+      if (input) input.value = "";
     }
   });
 
-  document.getElementById("new-relative-name").addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-      document.getElementById("add-relative-btn").click();
+  document.getElementById("new-relative-name")?.addEventListener("keypress", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") {
+      document.getElementById("add-relative-btn")?.click();
     }
   });
 
-  document.getElementById("relatives-list").addEventListener("click", (e) => {
-    const action = e.target.dataset.action;
+  document.getElementById("relatives-list")?.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    const action = target.dataset.action;
 
     if (action === "delete-relative") {
-      const index = parseInt(e.target.dataset.index);
+      const index = parseInt(target.dataset.index ?? "0");
       state.relatives.splice(index, 1);
       saveRelatives();
       renderRelativesList();
     }
 
     if (action === "delete-phrase") {
-      const relIndex = parseInt(e.target.dataset.rel);
-      const phraseIndex = parseInt(e.target.dataset.phrase);
+      const relIndex = parseInt(target.dataset.rel ?? "0");
+      const phraseIndex = parseInt(target.dataset.phrase ?? "0");
       state.relatives[relIndex].phrases.splice(phraseIndex, 1);
       saveRelatives();
       renderRelativesList();
     }
 
     if (action === "add-phrase") {
-      const relIndex = parseInt(e.target.dataset.rel);
-      const input = document.querySelector(`.phrase-input[data-rel="${relIndex}"]`);
-      const phrase = input.value.trim();
+      const relIndex = parseInt(target.dataset.rel ?? "0");
+      const input = document.querySelector(
+        `.phrase-input[data-rel="${relIndex}"]`
+      ) as HTMLInputElement | null;
+      const phrase = input?.value.trim() ?? "";
       if (phrase) {
         state.relatives[relIndex].phrases.push(phrase);
         saveRelatives();
@@ -449,20 +552,25 @@ function setupEventHandlers() {
     }
   });
 
-  document.getElementById("relatives-list").addEventListener("keypress", (e) => {
-    if (e.key === "Enter" && e.target.classList.contains("phrase-input")) {
-      const relIndex = e.target.dataset.rel;
-      document.querySelector(`button[data-action="add-phrase"][data-rel="${relIndex}"]`).click();
+  document.getElementById("relatives-list")?.addEventListener("keypress", (e) => {
+    const target = e.target as HTMLElement;
+    if ((e as KeyboardEvent).key === "Enter" && target.classList.contains("phrase-input")) {
+      const relIndex = (target as HTMLInputElement).dataset.rel;
+      document
+        .querySelector(`button[data-action="add-phrase"][data-rel="${relIndex}"]`)
+        ?.dispatchEvent(new Event("click"));
     }
   });
 
-  document.getElementById("to-event-setup-btn").addEventListener("click", () => {
+  document.getElementById("to-event-setup-btn")?.addEventListener("click", () => {
     if (state.relatives.length === 0) {
       alert("Please add at least one relative with catchphrases first!");
       return;
     }
 
-    const hasAnyPhrases = state.relatives.some((r) => r.phrases && r.phrases.length > 0);
+    const hasAnyPhrases = state.relatives.some(
+      (r) => r.phrases && r.phrases.length > 0
+    );
     if (!hasAnyPhrases) {
       alert("Please add at least one catchphrase to a relative!");
       return;
@@ -470,25 +578,35 @@ function setupEventHandlers() {
 
     // Restore previous event config if available
     if (state.eventConfig) {
-      document.getElementById("event-id").value = state.eventConfig.eventId || "";
-      document.getElementById("player-name").value = state.eventConfig.playerName || "";
-      document.getElementById("max-relatives").value = state.eventConfig.maxRelatives || 5;
-      document.getElementById("phrases-per-relative").value = state.eventConfig.phrasesPerRelative || 5;
+      const eventIdInput = document.getElementById("event-id") as HTMLInputElement | null;
+      const playerNameInput = document.getElementById("player-name") as HTMLInputElement | null;
+      const maxRelativesInput = document.getElementById("max-relatives") as HTMLInputElement | null;
+      const phrasesInput = document.getElementById("phrases-per-relative") as HTMLInputElement | null;
+
+      if (eventIdInput) eventIdInput.value = state.eventConfig.eventId || "";
+      if (playerNameInput) playerNameInput.value = state.eventConfig.playerName || "";
+      if (maxRelativesInput) maxRelativesInput.value = String(state.eventConfig.maxRelatives || 5);
+      if (phrasesInput) phrasesInput.value = String(state.eventConfig.phrasesPerRelative || 5);
     }
 
     showScreen("event-setup-screen");
   });
 
   // Event setup screen
-  document.getElementById("back-to-config-btn").addEventListener("click", () => {
+  document.getElementById("back-to-config-btn")?.addEventListener("click", () => {
     showScreen("config-screen");
   });
 
-  document.getElementById("start-game-btn").addEventListener("click", () => {
-    const eventId = document.getElementById("event-id").value.trim();
-    const playerName = document.getElementById("player-name").value.trim();
-    const maxRelatives = parseInt(document.getElementById("max-relatives").value) || 5;
-    const phrasesPerRelative = parseInt(document.getElementById("phrases-per-relative").value) || 5;
+  document.getElementById("start-game-btn")?.addEventListener("click", () => {
+    const eventIdInput = document.getElementById("event-id") as HTMLInputElement | null;
+    const playerNameInput = document.getElementById("player-name") as HTMLInputElement | null;
+    const maxRelativesInput = document.getElementById("max-relatives") as HTMLInputElement | null;
+    const phrasesInput = document.getElementById("phrases-per-relative") as HTMLInputElement | null;
+
+    const eventId = eventIdInput?.value.trim() ?? "";
+    const playerName = playerNameInput?.value.trim() ?? "";
+    const maxRelatives = parseInt(maxRelativesInput?.value ?? "5") || 5;
+    const phrasesPerRelative = parseInt(phrasesInput?.value ?? "5") || 5;
 
     if (!eventId) {
       alert("Please enter an Event ID!");
@@ -540,33 +658,36 @@ function setupEventHandlers() {
   });
 
   // Game screen
-  document.getElementById("bingo-card").addEventListener("click", (e) => {
-    const cell = e.target.closest(".bingo-cell");
-    if (cell) {
-      const index = parseInt(cell.dataset.index);
+  document.getElementById("bingo-card")?.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
+    const cell = target.closest(".bingo-cell") as HTMLElement | null;
+    if (cell && state.cardState) {
+      const index = parseInt(cell.dataset.index ?? "0");
       state.cardState.cells[index].checked = !state.cardState.cells[index].checked;
       saveCardState();
       renderBingoCard();
     }
   });
 
-  document.getElementById("reset-card-btn").addEventListener("click", () => {
-    if (confirm("Reset all checked cells?")) {
+  document.getElementById("reset-card-btn")?.addEventListener("click", () => {
+    if (confirm("Reset all checked cells?") && state.cardState) {
       state.cardState.cells.forEach((cell) => (cell.checked = false));
       saveCardState();
       renderBingoCard();
     }
   });
 
-  document.getElementById("new-game-btn").addEventListener("click", () => {
+  document.getElementById("new-game-btn")?.addEventListener("click", () => {
     state.cardState = null;
     localStorage.removeItem(STORAGE_KEYS.CARD_STATE);
     showScreen("event-setup-screen");
   });
 
   // QR Code modal
-  document.getElementById("generate-qr-btn").addEventListener("click", () => {
-    const eventId = document.getElementById("event-id").value.trim();
+  document.getElementById("generate-qr-btn")?.addEventListener("click", () => {
+    const eventIdInput = document.getElementById("event-id") as HTMLInputElement | null;
+    const eventId = eventIdInput?.value.trim() ?? "";
+
     if (!eventId) {
       alert("Please enter an Event ID first!");
       return;
@@ -581,19 +702,19 @@ function setupEventHandlers() {
     showQRCode(url);
   });
 
-  document.getElementById("close-qr-btn").addEventListener("click", () => {
-    document.getElementById("qr-modal").classList.add("hidden");
+  document.getElementById("close-qr-btn")?.addEventListener("click", () => {
+    document.getElementById("qr-modal")?.classList.add("hidden");
   });
 
-  document.getElementById("qr-modal").addEventListener("click", (e) => {
-    if (e.target.id === "qr-modal") {
-      document.getElementById("qr-modal").classList.add("hidden");
+  document.getElementById("qr-modal")?.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).id === "qr-modal") {
+      document.getElementById("qr-modal")?.classList.add("hidden");
     }
   });
 
   // Banner
-  document.getElementById("close-banner-btn").addEventListener("click", () => {
-    document.getElementById("shared-link-banner").classList.add("hidden");
+  document.getElementById("close-banner-btn")?.addEventListener("click", () => {
+    document.getElementById("shared-link-banner")?.classList.add("hidden");
   });
 }
 
@@ -601,7 +722,7 @@ function setupEventHandlers() {
 // Initialization
 // ============================================
 
-function init() {
+function init(): void {
   // Check for shared link before loading state
   const sharedData = parseSharedLink();
 
@@ -620,10 +741,15 @@ function init() {
   if (sharedData) {
     // Pre-fill the event setup form
     if (state.eventConfig) {
-      document.getElementById("event-id").value = state.eventConfig.eventId || "";
-      document.getElementById("player-name").value = "";
-      document.getElementById("max-relatives").value = state.eventConfig.maxRelatives || 5;
-      document.getElementById("phrases-per-relative").value = state.eventConfig.phrasesPerRelative || 5;
+      const eventIdInput = document.getElementById("event-id") as HTMLInputElement | null;
+      const playerNameInput = document.getElementById("player-name") as HTMLInputElement | null;
+      const maxRelativesInput = document.getElementById("max-relatives") as HTMLInputElement | null;
+      const phrasesInput = document.getElementById("phrases-per-relative") as HTMLInputElement | null;
+
+      if (eventIdInput) eventIdInput.value = state.eventConfig.eventId || "";
+      if (playerNameInput) playerNameInput.value = "";
+      if (maxRelativesInput) maxRelativesInput.value = String(state.eventConfig.maxRelatives || 5);
+      if (phrasesInput) phrasesInput.value = String(state.eventConfig.phrasesPerRelative || 5);
     }
     showScreen("event-setup-screen");
   } else if (state.cardState && state.eventConfig) {
