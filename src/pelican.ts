@@ -4,6 +4,7 @@
 
 import LZString from "lz-string";
 import qrcode from "qrcode-generator";
+import jsQR from "jsqr";
 
 // ============================================
 // Type Definitions
@@ -49,10 +50,28 @@ interface ShareBlob {
   };
 }
 
+interface WinnerPayload {
+  schema: number;
+  type: "winner";
+  eventId: string;
+  playerName: string;
+  timestamp: number;
+}
+
+interface Winner {
+  playerName: string;
+  timestamp: number;
+}
+
+type AppMode = "player" | "host";
+
 interface AppState {
+  mode: AppMode;
   relatives: Relative[];
   eventConfig: EventConfig | null;
   cardState: CardState | null;
+  hostEventId: string | null;
+  winners: Record<string, Winner[]>;
 }
 
 // ============================================
@@ -95,6 +114,9 @@ const STORAGE_KEYS = {
   RELATIVES: "pelican_relatives",
   EVENT_CONFIG: "pelican_event_config",
   CARD_STATE: "pelican_card_state",
+  MODE: "pelican_mode",
+  HOST_EVENT_ID: "pelican_host_event_id",
+  WINNERS_PREFIX: "pelican_winners_",
 } as const;
 
 // ============================================
@@ -102,10 +124,17 @@ const STORAGE_KEYS = {
 // ============================================
 
 const state: AppState = {
+  mode: "player",
   relatives: [],
   eventConfig: null,
   cardState: null,
+  hostEventId: null,
+  winners: {},
 };
+
+// Scanner state
+let scannerStream: MediaStream | null = null;
+let scannerAnimationId: number | null = null;
 
 function loadState(): void {
   try {
@@ -117,11 +146,33 @@ function loadState(): void {
 
     const cardData = localStorage.getItem(STORAGE_KEYS.CARD_STATE);
     state.cardState = cardData ? JSON.parse(cardData) : null;
+
+    const modeData = localStorage.getItem(STORAGE_KEYS.MODE);
+    state.mode = modeData === "host" ? "host" : "player";
+
+    const hostEventData = localStorage.getItem(STORAGE_KEYS.HOST_EVENT_ID);
+    state.hostEventId = hostEventData || null;
+
+    // Load winners for host event if set
+    if (state.hostEventId) {
+      loadWinnersForEvent(state.hostEventId);
+    }
   } catch (e) {
     console.error("Error loading state:", e);
     state.relatives = [];
     state.eventConfig = null;
     state.cardState = null;
+    state.mode = "player";
+    state.hostEventId = null;
+  }
+}
+
+function loadWinnersForEvent(eventId: string): void {
+  try {
+    const winnersData = localStorage.getItem(STORAGE_KEYS.WINNERS_PREFIX + eventId);
+    state.winners[eventId] = winnersData ? JSON.parse(winnersData) : [];
+  } catch (e) {
+    state.winners[eventId] = [];
   }
 }
 
@@ -138,6 +189,23 @@ function saveEventConfig(): void {
 
 function saveCardState(): void {
   localStorage.setItem(STORAGE_KEYS.CARD_STATE, JSON.stringify(state.cardState));
+}
+
+function saveMode(): void {
+  localStorage.setItem(STORAGE_KEYS.MODE, state.mode);
+}
+
+function saveHostEventId(): void {
+  if (state.hostEventId) {
+    localStorage.setItem(STORAGE_KEYS.HOST_EVENT_ID, state.hostEventId);
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.HOST_EVENT_ID);
+  }
+}
+
+function saveWinners(eventId: string): void {
+  const winners = state.winners[eventId] || [];
+  localStorage.setItem(STORAGE_KEYS.WINNERS_PREFIX + eventId, JSON.stringify(winners));
 }
 
 // ============================================
@@ -482,6 +550,274 @@ function showBanner(message: string): void {
 }
 
 // ============================================
+// Winner QR Code
+// ============================================
+
+function generateWinnerQR(): void {
+  if (!state.eventConfig) return;
+
+  const payload: WinnerPayload = {
+    schema: 1,
+    type: "winner",
+    eventId: state.eventConfig.eventId,
+    playerName: state.eventConfig.playerName,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+
+  const json = JSON.stringify(payload);
+  const compressed = LZString.compressToEncodedURIComponent(json);
+
+  const container = document.getElementById("winner-qr-container");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  const qr = qrcode(0, "M");
+  qr.addData(compressed);
+  qr.make();
+
+  container.innerHTML = qr.createSvgTag(4, 0);
+
+  // Update player name display
+  const playerNameEl = document.getElementById("winner-player-name");
+  if (playerNameEl) {
+    playerNameEl.textContent = state.eventConfig.playerName;
+  }
+}
+
+function showWinnerScreen(): void {
+  generateWinnerQR();
+  showScreen("winner-screen");
+}
+
+// ============================================
+// Host Mode
+// ============================================
+
+function updateModeToggle(): void {
+  const hostBtn = document.getElementById("host-mode-btn");
+  const playerBtn = document.getElementById("player-mode-btn");
+
+  if (state.mode === "host") {
+    hostBtn?.classList.add("active");
+    playerBtn?.classList.remove("active");
+  } else {
+    hostBtn?.classList.remove("active");
+    playerBtn?.classList.add("active");
+  }
+}
+
+function setMode(mode: AppMode): void {
+  state.mode = mode;
+  saveMode();
+  updateModeToggle();
+
+  if (mode === "host") {
+    showScreen("host-screen");
+    if (state.hostEventId) {
+      renderHostActiveEvent();
+    }
+  } else {
+    // Return to appropriate player screen
+    if (state.cardState && state.eventConfig) {
+      renderBingoCard();
+      showScreen("game-screen");
+    } else {
+      showScreen("config-screen");
+    }
+  }
+}
+
+function renderHostActiveEvent(): void {
+  if (!state.hostEventId) return;
+
+  const hostEventInfo = document.querySelector(".host-event-info") as HTMLElement;
+  const hostActiveEvent = document.getElementById("host-active-event");
+  const hostEventName = document.getElementById("host-event-name");
+
+  if (hostEventInfo) hostEventInfo.classList.add("hidden");
+  hostActiveEvent?.classList.remove("hidden");
+
+  if (hostEventName) {
+    hostEventName.textContent = state.hostEventId;
+  }
+
+  renderWinnersList();
+}
+
+function renderWinnersList(): void {
+  if (!state.hostEventId) return;
+
+  const container = document.getElementById("winners-list");
+  if (!container) return;
+
+  const winners = state.winners[state.hostEventId] || [];
+
+  if (winners.length === 0) {
+    container.innerHTML = '<p class="empty-message">No winners yet</p>';
+    return;
+  }
+
+  // Sort by timestamp, most recent first
+  const sorted = [...winners].sort((a, b) => b.timestamp - a.timestamp);
+
+  container.innerHTML = sorted
+    .map((winner, index) => {
+      const date = new Date(winner.timestamp * 1000);
+      const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return `
+        <div class="winner-item">
+          <span class="winner-name">#${sorted.length - index} ${escapeHtml(winner.playerName)}</span>
+          <span class="winner-time">${timeStr}</span>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function addWinner(eventId: string, playerName: string, timestamp: number): boolean {
+  if (!state.winners[eventId]) {
+    state.winners[eventId] = [];
+  }
+
+  // Check for duplicate (same player within 60 seconds)
+  const isDuplicate = state.winners[eventId].some(
+    (w) => w.playerName === playerName && Math.abs(w.timestamp - timestamp) < 60
+  );
+
+  if (isDuplicate) {
+    return false;
+  }
+
+  state.winners[eventId].push({ playerName, timestamp });
+  saveWinners(eventId);
+  return true;
+}
+
+function showWinnerNotification(playerName: string): void {
+  const notification = document.getElementById("winner-notification");
+  const message = document.getElementById("notification-message");
+
+  if (message) {
+    message.textContent = `BINGO! ${playerName}`;
+  }
+
+  notification?.classList.remove("hidden");
+
+  setTimeout(() => {
+    notification?.classList.add("hidden");
+  }, 3000);
+}
+
+// ============================================
+// QR Scanner
+// ============================================
+
+async function startScanner(): Promise<void> {
+  const video = document.getElementById("scanner-video") as HTMLVideoElement;
+  const canvas = document.getElementById("scanner-canvas") as HTMLCanvasElement;
+  const status = document.getElementById("scanner-status");
+
+  if (!video || !canvas) return;
+
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+    });
+
+    video.srcObject = scannerStream;
+    await video.play();
+
+    if (status) status.textContent = "Point camera at winner QR code";
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const scan = (): void => {
+      if (!scannerStream) return;
+
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (code) {
+          handleScannedCode(code.data);
+          return;
+        }
+      }
+
+      scannerAnimationId = requestAnimationFrame(scan);
+    };
+
+    scan();
+  } catch (e) {
+    console.error("Error starting scanner:", e);
+    if (status) status.textContent = "Camera access denied or unavailable";
+  }
+}
+
+function stopScanner(): void {
+  if (scannerAnimationId) {
+    cancelAnimationFrame(scannerAnimationId);
+    scannerAnimationId = null;
+  }
+
+  if (scannerStream) {
+    scannerStream.getTracks().forEach((track) => track.stop());
+    scannerStream = null;
+  }
+
+  const video = document.getElementById("scanner-video") as HTMLVideoElement;
+  if (video) {
+    video.srcObject = null;
+  }
+}
+
+function handleScannedCode(data: string): void {
+  stopScanner();
+  document.getElementById("scanner-modal")?.classList.add("hidden");
+
+  try {
+    // Try to decompress (winner QR uses compressed format)
+    const json = LZString.decompressFromEncodedURIComponent(data);
+    if (!json) {
+      alert("Invalid QR code format");
+      return;
+    }
+
+    const payload = JSON.parse(json) as WinnerPayload;
+
+    // Validate payload
+    if (payload.schema !== 1 || payload.type !== "winner") {
+      alert("Invalid winner QR code");
+      return;
+    }
+
+    if (payload.eventId !== state.hostEventId) {
+      alert(`Wrong event! This QR is for "${payload.eventId}" but you're hosting "${state.hostEventId}"`);
+      return;
+    }
+
+    // Add winner
+    const added = addWinner(payload.eventId, payload.playerName, payload.timestamp);
+
+    if (added) {
+      showWinnerNotification(payload.playerName);
+      renderWinnersList();
+    } else {
+      alert(`${payload.playerName} was already recorded as a winner`);
+    }
+  } catch (e) {
+    console.error("Error parsing scanned code:", e);
+    alert("Could not read QR code data");
+  }
+}
+
+// ============================================
 // Event Handlers
 // ============================================
 
@@ -701,6 +1037,60 @@ function setupEventHandlers(): void {
   document.getElementById("close-banner-btn")?.addEventListener("click", () => {
     document.getElementById("shared-link-banner")?.classList.add("hidden");
   });
+
+  // Mode toggle
+  document.getElementById("host-mode-btn")?.addEventListener("click", () => {
+    setMode("host");
+  });
+
+  document.getElementById("player-mode-btn")?.addEventListener("click", () => {
+    setMode("player");
+  });
+
+  // Claim bingo button
+  document.getElementById("claim-bingo-btn")?.addEventListener("click", () => {
+    showWinnerScreen();
+  });
+
+  // Back to game from winner screen
+  document.getElementById("back-to-game-btn")?.addEventListener("click", () => {
+    showScreen("game-screen");
+  });
+
+  // Host mode - set event
+  document.getElementById("set-host-event-btn")?.addEventListener("click", () => {
+    const input = document.getElementById("host-event-id") as HTMLInputElement | null;
+    const eventId = input?.value.trim() ?? "";
+
+    if (!eventId) {
+      alert("Please enter an Event ID");
+      return;
+    }
+
+    state.hostEventId = eventId;
+    saveHostEventId();
+    loadWinnersForEvent(eventId);
+    renderHostActiveEvent();
+  });
+
+  // Host mode - scan winner
+  document.getElementById("scan-winner-btn")?.addEventListener("click", () => {
+    document.getElementById("scanner-modal")?.classList.remove("hidden");
+    startScanner();
+  });
+
+  // Scanner modal - close
+  document.getElementById("close-scanner-btn")?.addEventListener("click", () => {
+    stopScanner();
+    document.getElementById("scanner-modal")?.classList.add("hidden");
+  });
+
+  document.getElementById("scanner-modal")?.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).id === "scanner-modal") {
+      stopScanner();
+      document.getElementById("scanner-modal")?.classList.add("hidden");
+    }
+  });
 }
 
 // ============================================
@@ -721,9 +1111,19 @@ function init(): void {
 
   setupEventHandlers();
   renderRelativesList();
+  updateModeToggle();
 
-  // If we loaded from a shared link, go to event setup
-  if (sharedData) {
+  // Handle mode-based screen routing
+  if (state.mode === "host") {
+    showScreen("host-screen");
+    if (state.hostEventId) {
+      // Pre-fill and render host event
+      const hostEventInput = document.getElementById("host-event-id") as HTMLInputElement | null;
+      if (hostEventInput) hostEventInput.value = state.hostEventId;
+      renderHostActiveEvent();
+    }
+  } else if (sharedData) {
+    // If we loaded from a shared link, go to event setup
     // Pre-fill the event setup form
     if (state.eventConfig) {
       const eventIdInput = document.getElementById("event-id") as HTMLInputElement | null;

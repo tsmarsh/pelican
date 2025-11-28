@@ -8,6 +8,12 @@
 </head>
 <body>
   <div id="app">
+    <!-- Mode Toggle -->
+    <div id="mode-toggle" class="mode-toggle">
+      <button id="host-mode-btn" class="mode-btn">Host Mode</button>
+      <button id="player-mode-btn" class="mode-btn active">Player Mode</button>
+    </div>
+
     <!-- Screen: Config (manage relatives and catchphrases) -->
     <div id="config-screen" class="screen">
       <h1>Pelican Bingo</h1>
@@ -84,13 +90,71 @@
       <div id="bingo-card" class="bingo-card"></div>
 
       <div id="bingo-message" class="bingo-message hidden">
-        BINGO!
+        <span>BINGO!</span>
+        <button id="claim-bingo-btn" class="primary-btn">Claim Bingo!</button>
       </div>
 
       <div class="nav-buttons">
         <button id="reset-card-btn">Reset Card</button>
         <button id="new-game-btn">New Game</button>
       </div>
+    </div>
+
+    <!-- Screen: Winner (shown when player claims bingo) -->
+    <div id="winner-screen" class="screen hidden">
+      <div class="winner-content">
+        <h1>You Win!</h1>
+        <p id="winner-player-name"></p>
+        <p class="winner-instructions">Show this QR code to the host to claim your win!</p>
+        <div id="winner-qr-container"></div>
+        <div class="nav-buttons">
+          <button id="back-to-game-btn">Back to Card</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Host Mode -->
+    <div id="host-screen" class="screen hidden">
+      <h1>Host Mode</h1>
+
+      <div class="host-event-info">
+        <div class="form-group">
+          <label for="host-event-id">Event ID</label>
+          <input type="text" id="host-event-id" placeholder="Enter event ID">
+        </div>
+        <button id="set-host-event-btn" class="primary-btn">Set Event</button>
+      </div>
+
+      <div id="host-active-event" class="host-active-event hidden">
+        <p>Active Event: <strong id="host-event-name"></strong></p>
+
+        <button id="scan-winner-btn" class="primary-btn scan-btn">Scan Winner QR</button>
+
+        <div class="winners-section">
+          <h2>Winners</h2>
+          <div id="winners-list" class="winners-list">
+            <p class="empty-message">No winners yet</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scanner Modal -->
+    <div id="scanner-modal" class="modal hidden">
+      <div class="modal-content scanner-modal-content">
+        <h2>Scan Winner QR</h2>
+        <div class="scanner-container">
+          <video id="scanner-video" autoplay playsinline></video>
+          <canvas id="scanner-canvas" class="hidden"></canvas>
+        </div>
+        <p id="scanner-status" class="scanner-status">Starting camera...</p>
+        <button id="close-scanner-btn">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Winner Notification -->
+    <div id="winner-notification" class="winner-notification hidden">
+      <span id="notification-message"></span>
     </div>
   </div>
 

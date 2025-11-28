@@ -10,6 +10,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "jsqr": "^1.4.0",
     "lz-string": "^1.5.0",
     "qrcode-generator": "^1.4.4"
   },
