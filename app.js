@@ -297,6 +297,106 @@ function escapeHtml(text) {
 }
 
 // ============================================
+// QR Code Sharing
+// ============================================
+
+function generateShareURL() {
+  const eventId = document.getElementById("event-id").value.trim();
+  const maxRelatives = parseInt(document.getElementById("max-relatives").value) || 5;
+  const phrasesPerRelative = parseInt(document.getElementById("phrases-per-relative").value) || 5;
+
+  const shareBlob = {
+    schema: 1,
+    gameConfig: {
+      relatives: state.relatives,
+    },
+    eventConfig: {
+      eventId: eventId,
+      maxRelatives: maxRelatives,
+      phrasesPerRelative: phrasesPerRelative,
+    },
+  };
+
+  const json = JSON.stringify(shareBlob);
+  const compressed = LZString.compressToEncodedURIComponent(json);
+  const baseURL = window.location.origin + window.location.pathname;
+  return baseURL + "#pelican=" + compressed;
+}
+
+function showQRCode(url) {
+  const container = document.getElementById("qr-code-container");
+  container.innerHTML = "";
+
+  // Use type 0 for auto-detect size
+  const qr = qrcode(0, "M");
+  qr.addData(url);
+  qr.make();
+
+  // Create SVG for better quality
+  container.innerHTML = qr.createSvgTag(4, 0);
+
+  document.getElementById("qr-modal").classList.remove("hidden");
+}
+
+function parseSharedLink() {
+  const hash = window.location.hash;
+  if (!hash || !hash.includes("pelican=")) {
+    return null;
+  }
+
+  try {
+    const encoded = hash.split("pelican=")[1];
+    const json = LZString.decompressFromEncodedURIComponent(encoded);
+    if (!json) return null;
+
+    const data = JSON.parse(json);
+    if (data.schema !== 1) {
+      console.warn("Unknown schema version:", data.schema);
+      return null;
+    }
+
+    return data;
+  } catch (e) {
+    console.error("Error parsing shared link:", e);
+    return null;
+  }
+}
+
+function loadSharedConfig(data) {
+  // Overwrite relatives config
+  if (data.gameConfig && data.gameConfig.relatives) {
+    state.relatives = data.gameConfig.relatives;
+    saveRelatives();
+  }
+
+  // Overwrite event config (except playerName which user should enter)
+  if (data.eventConfig) {
+    state.eventConfig = {
+      eventId: data.eventConfig.eventId || "",
+      playerName: "",
+      maxRelatives: data.eventConfig.maxRelatives || 5,
+      phrasesPerRelative: data.eventConfig.phrasesPerRelative || 5,
+    };
+    saveEventConfig();
+  }
+
+  // Clear any existing card state
+  state.cardState = null;
+  localStorage.removeItem(STORAGE_KEYS.CARD_STATE);
+
+  // Clear the hash from URL
+  history.replaceState(null, "", window.location.pathname);
+
+  return data.eventConfig?.eventId || "shared event";
+}
+
+function showBanner(message) {
+  const banner = document.getElementById("shared-link-banner");
+  document.getElementById("banner-message").textContent = message;
+  banner.classList.remove("hidden");
+}
+
+// ============================================
 // Event Handlers
 // ============================================
 
@@ -463,6 +563,38 @@ function setupEventHandlers() {
     localStorage.removeItem(STORAGE_KEYS.CARD_STATE);
     showScreen("event-setup-screen");
   });
+
+  // QR Code modal
+  document.getElementById("generate-qr-btn").addEventListener("click", () => {
+    const eventId = document.getElementById("event-id").value.trim();
+    if (!eventId) {
+      alert("Please enter an Event ID first!");
+      return;
+    }
+
+    if (state.relatives.length === 0) {
+      alert("Please configure relatives first!");
+      return;
+    }
+
+    const url = generateShareURL();
+    showQRCode(url);
+  });
+
+  document.getElementById("close-qr-btn").addEventListener("click", () => {
+    document.getElementById("qr-modal").classList.add("hidden");
+  });
+
+  document.getElementById("qr-modal").addEventListener("click", (e) => {
+    if (e.target.id === "qr-modal") {
+      document.getElementById("qr-modal").classList.add("hidden");
+    }
+  });
+
+  // Banner
+  document.getElementById("close-banner-btn").addEventListener("click", () => {
+    document.getElementById("shared-link-banner").classList.add("hidden");
+  });
 }
 
 // ============================================
@@ -470,12 +602,32 @@ function setupEventHandlers() {
 // ============================================
 
 function init() {
+  // Check for shared link before loading state
+  const sharedData = parseSharedLink();
+
   loadState();
+
+  // If we have shared data, load it and show banner
+  if (sharedData) {
+    const eventId = loadSharedConfig(sharedData);
+    showBanner(`Loaded event "${eventId}" from shared link.`);
+  }
+
   setupEventHandlers();
   renderRelativesList();
 
-  // Check if we have an active game to resume
-  if (state.cardState && state.eventConfig) {
+  // If we loaded from a shared link, go to event setup
+  if (sharedData) {
+    // Pre-fill the event setup form
+    if (state.eventConfig) {
+      document.getElementById("event-id").value = state.eventConfig.eventId || "";
+      document.getElementById("player-name").value = "";
+      document.getElementById("max-relatives").value = state.eventConfig.maxRelatives || 5;
+      document.getElementById("phrases-per-relative").value = state.eventConfig.phrasesPerRelative || 5;
+    }
+    showScreen("event-setup-screen");
+  } else if (state.cardState && state.eventConfig) {
+    // Check if we have an active game to resume
     renderBingoCard();
     showScreen("game-screen");
   } else {

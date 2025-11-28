@@ -53,8 +53,25 @@
 
       <div class="nav-buttons">
         <button id="back-to-config-btn">Back to Config</button>
+        <button id="generate-qr-btn">Generate Join QR</button>
         <button id="start-game-btn" class="primary-btn">Start Game</button>
       </div>
+    </div>
+
+    <!-- QR Code Modal -->
+    <div id="qr-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Join This Event</h2>
+        <p class="qr-instructions">Scan this to join this event in Pelican</p>
+        <div id="qr-code-container"></div>
+        <button id="close-qr-btn" class="primary-btn">Close</button>
+      </div>
+    </div>
+
+    <!-- Shared Link Banner -->
+    <div id="shared-link-banner" class="banner hidden">
+      <span id="banner-message"></span>
+      <button id="close-banner-btn">x</button>
     </div>
 
     <!-- Screen: Game (Bingo Card) -->
@@ -77,6 +94,8 @@
     </div>
   </div>
 
+  <script src="lz-string.js"></script>
+  <script src="qrcode.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
